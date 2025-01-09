@@ -9,3 +9,5 @@ python-dotenv
 time
 json
 re
+sentence-transformers
+faiss

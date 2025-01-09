@@ -1,9 +1,13 @@
 import selenium.webdriver as webdriver
 from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
+import numpy as np
 import time
 import json
 import re
+from sentence_transformers import SentenceTransformer
+import faiss
+import json
 
 def perform_scraping(url):
     chrome_driver_path = "./chromedriver"
@@ -19,7 +23,7 @@ def perform_scraping(url):
     try:
         driver.get(url)
         print("Page loaded")
-        time.sleep(5)
+        time.sleep(10)
         return driver.page_source
     finally:
         driver.quit()
@@ -28,9 +32,6 @@ def clean_text(text):
     return re.sub(r'\s+',' ',text).strip()
 
 def parse_content(html):
-    for tag in ["script","style","footer","nav","header"]:
-        html = re.sub(r'<{}[^>]*>.*?</{}>'.format(tag, tag),'',html, flags=re.DOTALL)
-
     inline_tags = ["span","a","em","strong","i","b","u"]
     for tag in inline_tags:
         html = re.sub(r'<{0}[^>]*>(.*?)</{0}>'.format(tag),r'\1',html, flags=re.DOTALL)
@@ -38,13 +39,16 @@ def parse_content(html):
     html = clean_text(html)
 
     soup = BeautifulSoup(html,"html.parser")
+    for tag in soup(["script","style","footer","nav","header"]):
+        tag.decompose()
+
 
     grouped_data = []
     current_group = None
 
-    for element in soup.body.descendants:
-        if element.name and element.name in ["h1","h2","h3","h4"]:
-            if current_group and current_group["content"]:
+    for element in soup.descendants:
+        if element.name and element.name in ["h1","h2","h3","h4","h5"]:
+            if current_group:
                 grouped_data.append(current_group)
             current_group = {
                 "title": clean_text(element.get_text()),
@@ -64,14 +68,39 @@ def save_data(grouped_data,output_file="output.json"):
     with open(output_file,"w",encoding="utf-8") as f:
         json.dump(grouped_data,f,ensure_ascii=False,indent=4)
 
-def format_data(grouped_data):
-    formatted_output = []
+#Using a sentence transformer as the embedding model
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+faiss_index = None
+
+def build_index(grouped_data):
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    texts = []
+    embeddings = []
+
     for group in grouped_data:
         title = group['title']
-        formatted_output.append(f"{title}\n{'-'*len(title)}\n")
-        formatted_output.append("\n".join(group['content']))
-        formatted_output.append("\n\n")
-    return "\n".join(formatted_output).strip()
+        content = " ".join(group['content'])
+        
+        weighted_text = f"{title} {title} {content}"
+        texts.append(weighted_text)
+        embedding = model.encode(weighted_text,convert_to_tensor=False)
+        embeddings.append(embedding)
 
-def split_content(cleaned_content, max_length=6000):
-    return [cleaned_content[i:i+max_length] for i in range(0,len(cleaned_content),max_length)]
+    dimension = len(embeddings[0])
+    index = faiss.IndexFlatL2(dimension)
+    index.add(np.array(embeddings))
+
+    return {"index": index, "texts": texts}
+
+def retrieve_relevant_sections(query, indexed_data, top_k=5):
+    index = indexed_data["index"]
+    texts = indexed_data["texts"]
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    
+    query_embedding = model.encode(query,convert_to_tensor=False)
+    distances,indices = index.search(np.array([query_embedding]),k=top_k)
+    relevant_sections = [texts[i] for i in indices[0] if i < len(texts)]
+    print(relevant_sections)
+
+    return relevant_sections
