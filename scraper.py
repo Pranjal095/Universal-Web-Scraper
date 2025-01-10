@@ -74,7 +74,7 @@ embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 faiss_index = None
 
 def build_index(grouped_data):
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    model = SentenceTransformer("all-MiniLM-L6-v2")
     texts = []
     embeddings = []
 
@@ -82,24 +82,30 @@ def build_index(grouped_data):
         title = group['title']
         content = " ".join(group['content'])
         
-        weighted_text = f"{title} {title} {content}"
-        texts.append(weighted_text)
-        embedding = model.encode(weighted_text,convert_to_tensor=False)
-        embeddings.append(embedding)
+        #Generate separate embeddings for title and content
+        title_embedding = model.encode(title,normalize_embeddings=True)
+        content_embedding = model.encode(content,normalize_embeddings=True)
+        
+        #Combine embeddings while giving higher weightage to the title
+        combined_embedding = (1.2*title_embedding+content_embedding)/2.2
+        embeddings.append(combined_embedding)
+        
+        texts.append(f"{title} | {content}")
 
+    #Create FAISS index
     dimension = len(embeddings[0])
     index = faiss.IndexFlatL2(dimension)
     index.add(np.array(embeddings))
 
     return {"index": index, "texts": texts}
 
-def retrieve_relevant_sections(query, indexed_data, top_k=5):
+def retrieve_relevant_sections(query, indexed_data,top_k=5):
     index = indexed_data["index"]
     texts = indexed_data["texts"]
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    model = SentenceTransformer("all-MiniLM-L6-v2")
     
-    query_embedding = model.encode(query,convert_to_tensor=False)
-    distances,indices = index.search(np.array([query_embedding]),k=top_k)
+    query_embedding = model.encode(query,normalize_embeddings=True)    
+    distances,indices = index.search(np.array([query_embedding]),k=top_k)    
     relevant_sections = [texts[i] for i in indices[0] if i < len(texts)]
     print(relevant_sections)
 
