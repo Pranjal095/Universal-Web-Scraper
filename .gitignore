@@ -10,3 +10,5 @@ v8_context_snapshot.bin
 website_data.json
 data
 main.py
+cloudflare_bypass.log
+debug_screenshot.png

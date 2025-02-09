@@ -8,3 +8,4 @@ html5lib
 python-dotenv
 sentence-transformers
 faiss-cpu
+DrissionPage==4.0.5.6
